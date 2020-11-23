@@ -34,6 +34,14 @@ Bench<-"^OSEAX" #^OSEAX is the name of the ALl-share Index at Yahoo
 names(Bench) = paste0("Oslo Børs All-share Index") #Asign name to the characher ^OSEAX
 benchnames <-c(Bench,OSEBX_tickers) #New vector of OSEBX tickers plus ^OSEAX
 
+# Risk-free rate
+TB1YR <- 
+  tq_get("TB1YR",get = "economic.data") %>%
+  arrange(desc(date))
+
+rf <- as.numeric(TB1YR[1,3])/100
+
+# PROBLEM: rf blir automatisk annualisert??
 
 stocks<- benchnames %>% 
   tq_get( #use tidyquant to get stockprices
@@ -45,14 +53,15 @@ stocks<- benchnames %>%
     cols_to_xts =adjusted,
     spread_by = symbol)%>%
   Return.calculate()%>%
-  table.AnnualizedReturns(Rf = 0.05/279.8)%>%
+  table.AnnualizedReturns(Rf = rf/365, scale = 252)%>%
   rownames_to_column()%>%
   rename('Measure'='rowname')%>% 
   gather(key = 'Stock', value = 'Values', -Measure) %>% 
-  spread(key = Measure, value = Values)%>%
-  rename('Annualized_Return' = 'Annualized Return', 
-         'Annualized_Sharpe' = 'Annualized Sharpe (Rf=4.5%)',
-         'Annualized_StdDev' = 'Annualized Std Dev' )
+  spread(key = Measure, value = Values) %>%
+  #colnames() <- c("Return", "Sharpe", "Std Dev")
+  rename('Return' = 'Annualized Return', 
+         'Sharpe' = paste("Annualized Sharpe (Rf=",round(rf/365*252*100, digits = 2),"%)", sep=""),
+         'StdDev' = 'Annualized Std Dev' )
 
 
 
@@ -63,8 +72,8 @@ ui<-dashboardPage(
   dashboardHeader(title = "Stock app"),
   dashboardSidebar(
     sidebarMenu(
+      menuItem("Stock explorer", tabName = "stock", icon=icon("search")),
       menuItem("Overview OSEBX", tabName = "osebx", icon=icon("globe")),
-      menuItem("Stock_plots", tabName = "stock", icon=icon("search")),
       menuItem("Risk & Forecast", tabName = "risk", icon = icon("book"))
       
     )
@@ -74,13 +83,18 @@ ui<-dashboardPage(
       tabItem("stock",
               box(
                 sidebarPanel( 
-                  selectInput("stock_id", "OSEBX Aksjer:", OSEBX_tickers), 
+                  selectizeInput("stock_id", "Stock:", c("Choose stock to examine" = "", OSEBX_tickers)), 
                   dateRangeInput("dates", 
                                  "Date range", 
                                  start = "2019-01-01",
-                                 end = as.character(Sys.Date())), 
-                  selectInput("bench_id", "Pick a benchmark:", benchnames
-                  ),width = "100%" 
+                                 end = as.character(Sys.Date()),
+                                 max = as.character(Sys.Date()),
+                                 format = "dd/mm/yyyy",
+                                 startview = "year"),
+                  selectizeInput("bench_id", "Compare to:", c("Choose index/stock for comparison" = "", benchnames)),
+                  textOutput("valid"),
+                  textOutput("omitted"),
+                  width = "100%" 
                 ), 
                 
               ),
@@ -105,6 +119,16 @@ ui<-dashboardPage(
 
 server<-function(input,output){
   dataInput <- reactive({  #reactive means sensitive to user input 
+    
+    # Require input from user
+    validate(
+      need(input$stock_id, 
+           "Please select a stock from the drop-down"))
+    validate(
+      need(input$dates[1] < input$dates[2], 
+           "Start date (left) must be prior to end date (right)"))
+    
+    
     stocks_return<- input$stock_id %>% 
       tq_get( #use tidyquant to get stockprices
         get = "stock.prices", #get prices from Yahoo
@@ -174,10 +198,13 @@ server<-function(input,output){
       mutate(fcast = map(fit, forecast, h = 6))%>%
       mutate(sweep = map(fcast, sw_sweep, fitted = FALSE, timetk_idx = TRUE, rename_index = "date"))
     
+    validation <- bench %>%
+      filter(is.na(close))
+    
     
     #In order to refer to the right dataframe when drawing the plots 
     #thus, the different dataframes used are listed. 
-    list(stocks_return, stock, bench_stock,stocks,plot_var,models_tbl)
+    list(stocks_return, stock, bench_stock, stocks,plot_var, models_tbl, validation)
   })
   
   #-----
@@ -215,7 +242,7 @@ server<-function(input,output){
       ggplot(aes(x = date, y = close, group = symbol))+ #group by symbol, meaning stock and benchmark 
       geom_line(aes(color=symbol )) + #diffrent colours to the different lines 
       scale_color_manual(values=c('blue','grey0')) + #Set specific colours for the different lines 
-      labs(title = "Comparison to benchmark",
+      labs(title = "Comparison",
            x = "", y = "") +
       theme_classic() +
       theme(legend.title=element_blank()) +
@@ -224,20 +251,20 @@ server<-function(input,output){
   output$check<-renderPlot({
     dataInput<-dataInput()[[4]]
     dataInput%>%
-      ggplot(aes(y = Annualized_Return, x = Annualized_StdDev)) +
-      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = 0.045, ymax= Inf, fill = 'green', alpha = 0.01) + 
-      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = -Inf, ymax= 0.045, fill = 'red', alpha = 0.01) +
-      geom_hline(aes(yintercept = 0.045)) + 
+      ggplot(aes(y = Return, x = StdDev)) +
+      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = rf, ymax= Inf, fill = 'green', alpha = 0.01) + 
+      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = -Inf, ymax= rf, fill = 'red', alpha = 0.01) +
+      geom_hline(aes(yintercept = rf, color = 'white')) + 
       geom_label(label = dataInput$Stock, size = 2) + 
       annotate(geom ='text',
-               x=0.3, 
-               y=0.05, 
-               label ='Risk-Free Rate Return (4.5%)', 
+               x=0.8, 
+               y=rf, 
+               label ='Risk-Free Rate (One-year T-bill)', 
                size = 4.5) + 
       theme_bw() + 
-      xlab('Standard deviation') + 
-      ylab('Anualized return') + 
-      ggtitle('Overall Stock Performance vs Risk-Free Rate Asset') +
+      xlab('Standard Deviation') + 
+      ylab('Actual Returns') + 
+      ggtitle('Overall Stock Performance vs Risk-Free Rate') +
       theme(axis.text = element_text(size = 14), 
             plot.title = element_text(size =20, hjust = 0.5),
             axis.title = element_text(size = 16))
@@ -273,6 +300,29 @@ server<-function(input,output){
       scale_color_tq()
     
   })
+  # Validate
+  output$valid <- renderText({
+    
+    if (nrow(dataInput()[[1]]) > 1) {
+      paste("Data was successfully retrieved from yahoo! finance at", " ", as.character(Sys.time()))
+    }
+    else {
+      paste("Application failed to retrieve data from yahoo! finance.
+            Try selecting a different time period.")
+    }
+  })
+  
+  # Omitted values
+  output$omitted <- renderText({
+    
+    if (nrow(dataInput()[[7]]) > 0) {
+      paste("Note:", "", 
+            nrow(dataInput()[[7]]), "", 
+            "missing observation(s) omitted for the selected time period.")
+    }
+    
+  })
+  
   
 }
 
