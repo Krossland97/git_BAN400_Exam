@@ -12,7 +12,8 @@ library(timetk)
 library(sweep)
 library(forecast)
 
-tabledata.url <- "https://no.wikipedia.org/wiki/OSEBX-indeksen" #url for where the ticker data is colleted 
+# Collect tickers
+tabledata.url <- "https://no.wikipedia.org/wiki/OSEBX-indeksen"
 
 #Create HTML tables of the tables from the tables in the url. Save as dataframe 
 OSEBX_indeksen <- htmltab(doc = tabledata.url, #select url 
@@ -24,7 +25,7 @@ OSEBX_indeksen_symbol <- paste0(OSEBX_indeksen[["Ticker"]], ".OL")
 
 #Remove OSE: from all charachers vector
 OSEBX_tickers <-  str_remove_all(OSEBX_indeksen_symbol, "OSE: ") 
-OSEBX_tickers2<-c(OSEBX_tickers,"^OSEAX")
+OSEBX_tickers2<-c(OSEBX_tickers)
 
 #Add names to the charachers in the vector, 
 names(OSEBX_tickers) =  paste0(OSEBX_indeksen[["Navn"]]) 
@@ -34,47 +35,15 @@ Bench<-"^OSEAX" #^OSEAX is the name of the ALl-share Index at Yahoo
 names(Bench) = paste0("Oslo Børs All-share Index") #Asign name to the characher ^OSEAX
 benchnames <-c(Bench,OSEBX_tickers) #New vector of OSEBX tickers plus ^OSEAX
 
-# Risk-free rate
-TB1YR <- 
-  tq_get("TB1YR",get = "economic.data") %>%
-  arrange(desc(date))
-
-rf <- as.numeric(TB1YR[1,3])/100
-
-# PROBLEM: rf blir automatisk annualisert??
-
-stocks<- benchnames %>% 
-  tq_get( #use tidyquant to get stockprices
-    get = "stock.prices", #get prices from Yahoo
-    from = as.character(Sys.Date()-years(1)), #refer to the input dates in the UI
-    to = as.character(Sys.Date()))%>%
-  rename("symbol"="Oslo Børs All-share Index")%>%
-  tbl_xts(
-    cols_to_xts =adjusted,
-    spread_by = symbol)%>%
-  Return.calculate()%>%
-  table.AnnualizedReturns(Rf = rf/365, scale = 252)%>%
-  rownames_to_column()%>%
-  rename('Measure'='rowname')%>% 
-  gather(key = 'Stock', value = 'Values', -Measure) %>% 
-  spread(key = Measure, value = Values) %>%
-  #colnames() <- c("Return", "Sharpe", "Std Dev")
-  rename('Return' = 'Annualized Return', 
-         'Sharpe' = paste("Annualized Sharpe (Rf=",round(rf/365*252*100, digits = 2),"%)", sep=""),
-         'StdDev' = 'Annualized Std Dev' )
-
-
-
-
 #------------------
 
 ui<-dashboardPage(
   dashboardHeader(title = "Stock app"),
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Stock explorer", tabName = "stock", icon=icon("search")),
-      menuItem("Overview OSEBX", tabName = "osebx", icon=icon("globe")),
-      menuItem("Risk & Forecast", tabName = "risk", icon = icon("book"))
+      menuItem("Stock Analysis", tabName = "stock", icon=icon("search")),
+      menuItem("Risk & Forecast", tabName = "risk", icon = icon("chart-line")),
+      menuItem("Market Overview", tabName = "osebx", icon=icon("landmark"))
       
     )
   ),
@@ -83,7 +52,7 @@ ui<-dashboardPage(
       tabItem("stock",
               box(
                 sidebarPanel( 
-                  selectizeInput("stock_id", "Stock:", c("Choose stock to examine" = "", OSEBX_tickers)), 
+                  selectizeInput("stock_id", "Select stock", c("Choose stock to examine" = "", OSEBX_tickers)), 
                   dateRangeInput("dates", 
                                  "Date range", 
                                  start = "2019-01-01",
@@ -91,7 +60,7 @@ ui<-dashboardPage(
                                  max = as.character(Sys.Date()),
                                  format = "dd/mm/yyyy",
                                  startview = "year"),
-                  selectizeInput("bench_id", "Compare to:", c("Choose index/stock for comparison" = "", benchnames)),
+                  selectizeInput("bench_id", "Compare to", c("Choose index/stock for comparison" = "", benchnames)),
                   textOutput("valid"),
                   textOutput("omitted"),
                   width = "100%" 
@@ -114,10 +83,110 @@ ui<-dashboardPage(
   )
 )
 
-
-
-
 server<-function(input,output){
+  #This is a table for
+  withProgress(message = "Loading stock information. This may take a few seconds.", value = 0, {
+    stocks <- OSEBX_tickers2
+    index<-Bench
+    
+    rf.rate = "TB1YR" %>%  
+      tq_get(
+        get = "economic.data") %>%
+      arrange(desc(date))
+    
+    rf.rate = as.numeric(rf.rate[1,3]/100)
+    
+    Market_return<-index%>%
+      tq_get(
+        get = "stock.prices",
+        from =Sys.Date()-years(1), 
+        to = Sys.Date())%>%
+      tq_transmute(
+        select = adjusted,
+        mutate_fun = periodReturn,
+        period = "daily",
+        col_rename = "returns")
+    
+    
+    index_ret<-Market_return%>%
+      tbl_xts(
+        cols_to_xts =returns)%>%
+      Return.annualized()
+    
+    asset.prices <- sapply(t(stocks), 
+                           function(x) {
+                             stock_information<-x%>%
+                               tq_get(
+                                 get = "stock.prices",
+                                 from =Sys.Date()-years(1), 
+                                 to = Sys.Date())
+                             return_stock<-stock_information%>%
+                               tq_transmute(
+                                 select = adjusted,
+                                 mutate_fun = periodReturn,
+                                 period = "daily")%>%
+                               left_join(Market_return)
+                             
+                           }, 
+                           simplify=FALSE, USE.NAMES=TRUE)
+    
+  })
+    
+  withProgress(message = "Loading table information. This may take a few seconds.", value = 0, {
+    stocks.df <- data.frame(ticker = names(asset.prices), beta = rep(NA), alpha = rep(NA), 
+                            expected.return = rep(NA), return= rep(NA), r2 = rep(NA),
+                            Stdev = rep(NA), Sharp = rep(NA),vVar = rep(NA))
+    
+    
+    stocks.df[, c("beta","alpha","r2","expected.return","return","vVar","Stdev","Sharp")] <- t(as.data.frame(
+      lapply(asset.prices, 
+             function(x){
+               b_s<-x%>%
+                 tq_performance(
+                   Ra = daily.returns,
+                   Rb = returns,
+                   performance_fun = CAPM.beta)%>%
+                 `colnames<-`("beta")
+               beta = b_s$beta
+               a_s<-x%>%
+                 tq_performance(
+                   Ra = daily.returns,
+                   Rb = returns,
+                   performance_fun = CAPM.alpha)%>%
+                 `colnames<-`("alpha")
+               alpha = a_s$alpha
+               lm.fit = lm(x$daily.returns~x$returns)
+               r2 = summary(lm.fit)$adj.r.squared
+               expected.return = rf.rate + beta * (index_ret - rf.rate)
+               xts_return<-x%>%
+                 tbl_xts(
+                   cols_to_xts = daily.returns)
+               
+               return = Return.annualized(xts_return)
+               Stdev =StdDev.annualized(xts_return)
+               Sharp =SharpeRatio.annualized(xts_return, Rf = rf.rate)
+               vVar = CVaR(x$daily.returns,p=.95, method="historical")
+               round(c(beta,alpha,r2,expected.return,return,vVar,Stdev,Sharp), 8)
+               
+             }
+      )
+    ))
+    
+    
+    stocks.df<-stocks.df%>%
+      rename('Annualized_Return' = 'return', 
+             'Annualized_Sharpe' = 'Sharp',
+             'Annualized_StdDev' = 'Stdev',
+             'Beta' = 'beta',
+             'Alpha' = 'alpha', 
+             'R2' = 'r2',
+             'Expected_return' = 'expected.return',
+             'Historical_VaR'='vVar',
+             'Ticker'='ticker')
+    
+    
+  })
+  
   dataInput <- reactive({  #reactive means sensitive to user input 
     
     # Require input from user
@@ -173,13 +242,13 @@ server<-function(input,output){
     stock.prediction <- input$stock_id %>% 
       tq_get( #use tidyquant to get stockprices
         get = "stock.prices", #get prices from Yahoo
-        from = as.character(Sys.Date()-years(4)), #refer to the input dates in the UI
-        to = as.character(Sys.Date()))%>%
+        from = input$dates[1],
+        to = input$dates[2])%>%
       tq_transmute(
         select = adjusted,
         mutate_fun = to.period,
-        period = "months") %>% 
-      tk_ts(select = -date, freq = 12)
+        period = "day") %>% 
+      tk_ts(select = -date)
     
     
     models_list <- list(
@@ -193,10 +262,11 @@ server<-function(input,output){
     )
     
     
-    models_tbl <- enframe(models_list, name = "f", value = "params")%>%
-      mutate(fit = invoke_map(f, params))%>%
+    models_tbl <- enframe(models_list, name = "Method", value = "params")%>%
+      mutate(fit = invoke_map(Method, params))%>%
       mutate(fcast = map(fit, forecast, h = 6))%>%
       mutate(sweep = map(fcast, sw_sweep, fitted = FALSE, timetk_idx = TRUE, rename_index = "date"))
+
     
     validation <- bench %>%
       filter(is.na(close))
@@ -204,7 +274,7 @@ server<-function(input,output){
     
     #In order to refer to the right dataframe when drawing the plots 
     #thus, the different dataframes used are listed. 
-    list(stocks_return, stock, bench_stock, stocks,plot_var, models_tbl, validation)
+    list(stocks_return, stock, bench_stock, stocks.df, plot_var, models_tbl, validation)
   })
   
   #-----
@@ -251,20 +321,20 @@ server<-function(input,output){
   output$check<-renderPlot({
     dataInput<-dataInput()[[4]]
     dataInput%>%
-      ggplot(aes(y = Return, x = StdDev)) +
-      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = rf, ymax= Inf, fill = 'green', alpha = 0.01) + 
-      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = -Inf, ymax= rf, fill = 'red', alpha = 0.01) +
-      geom_hline(aes(yintercept = rf, color = 'white')) + 
-      geom_label(label = dataInput$Stock, size = 2) + 
+      ggplot(aes(y = Annualized_Return, x = Annualized_StdDev)) +
+      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = rf.rate, ymax= Inf, fill = 'green', alpha = 0.01) + 
+      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = -Inf, ymax= rf.rate, fill = 'red', alpha = 0.01) +
+      #geom_hline(aes(yintercept = rf.rate)) + 
+      geom_label(label = dataInput$Ticker, size = 2) + 
       annotate(geom ='text',
-               x=0.8, 
-               y=rf, 
-               label ='Risk-Free Rate (One-year T-bill)', 
+               x=0.85, 
+               y=rf.rate, 
+               label = paste('One-Year T-bill =',rf.rate), 
                size = 4.5) + 
       theme_bw() + 
-      xlab('Standard Deviation') + 
-      ylab('Actual Returns') + 
-      ggtitle('Overall Stock Performance vs Risk-Free Rate') +
+      xlab('Standard deviation') + 
+      ylab('Anualized return') + 
+      ggtitle('Stock Performance vs Risk-Free Instrument (Annualized)') +
       theme(axis.text = element_text(size = 14), 
             plot.title = element_text(size =20, hjust = 0.5),
             axis.title = element_text(size = 16))
@@ -278,24 +348,23 @@ server<-function(input,output){
     dataInput<-dataInput()[[5]]
     chart.VaRSensitivity(dataInput[,1,drop=FALSE],
                          methods=c("HistoricalVaR", "ModifiedVaR", "GaussianVaR"), 
-                         colorset=bluefocus, lwd=2)
+                         colorset=bluefocus, lwd=2,
+                         main = "Value at risk selected stock")
   })
   output$models_tbl<-renderPlot({
     dataInput<-dataInput()[[6]]
     dataInput %>%
       unnest(sweep) %>%
-      ggplot(aes(x = date, y = adjusted, color = key, group = f)) +
+      ggplot(aes(x = date, y = adjusted, color = key, group = Method)) +
       geom_ribbon(aes(ymin = lo.95, ymax = hi.95), 
                   fill = "#D5DBFF", color = NA, size = 0) +
       geom_ribbon(aes(ymin = lo.80, ymax = hi.80, fill = key), 
                   fill = "#596DD5", color = NA, size = 0, alpha = 0.8) +
       geom_line(size = 1) +
-      facet_wrap(~f, nrow = 3) +
-      labs(title = "Stock forecast using different models",
-           subtitle = "Forecasting multiple models with sweep: ARIMA, ETS",
-           x = "", y = "Price") +
+      facet_wrap(~Method, nrow = 6, labeller =labeller(Method = c("auto.arima"="Arima model", "ets"="Exponential Smoothing")))+
+      labs(title = "Stock forecast using using ARIMA and ETS",
+           x = "", y = "Stock price") +
       scale_y_continuous(labels = scales::number) +
-      scale_x_date(date_breaks = "5 years", date_labels = "%Y") +
       theme_tq() +
       scale_color_tq()
     
@@ -322,8 +391,6 @@ server<-function(input,output){
     }
     
   })
-  
-  
 }
 
 
