@@ -12,7 +12,8 @@ library(timetk)
 library(sweep)
 library(forecast)
 
-tabledata.url <- "https://no.wikipedia.org/wiki/OSEBX-indeksen" #url for where the ticker data is colleted 
+# Collect tickers
+tabledata.url <- "https://no.wikipedia.org/wiki/OSEBX-indeksen"
 
 #Create HTML tables of the tables from the tables in the url. Save as dataframe 
 OSEBX_indeksen <- htmltab(doc = tabledata.url, #select url 
@@ -40,9 +41,9 @@ ui <- dashboardPage(
   dashboardHeader(title = "Stock app"),
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Stock_plots", tabName = "stock", icon=icon("search")),
-      menuItem("Overview OSEBX", tabName = "osebx", icon=icon("globe")),
-      menuItem("Risk & Forecast", tabName = "risk", icon = icon("book"))
+      menuItem("Stock Analysis", tabName = "stock", icon=icon("search")),
+      menuItem("Risk & Forecast", tabName = "risk", icon = icon("chart-line")),
+      menuItem("Market Overview", tabName = "osebx", icon=icon("landmark"))
       
     )
   ),
@@ -51,14 +52,15 @@ ui <- dashboardPage(
       tabItem("stock",
               box(
                 sidebarPanel( 
-                  selectizeInput("stock_id", "OSEBX Aksjer:", c("Choose stock to examine" = "", OSEBX_tickers)), 
+                  selectizeInput("stock_id", "Select stock", c("Choose stock to examine" = "", OSEBX_tickers)), 
                   dateRangeInput("dates", 
                                  "Date range", 
                                  start = "2019-01-01",
                                  end = as.character(Sys.Date()),
-                                 # Cap input to today's date
-                                 max = as.character(Sys.Date())),
-                  selectizeInput("bench_id", "Pick a benchmark:", c("Choose index/stock for comparison" = "", benchnames)),
+                                 max = as.character(Sys.Date()),
+                                 format = "dd/mm/yyyy",
+                                 startview = "year"),
+                  selectizeInput("bench_id", "Compare to", c("Choose index/stock for comparison" = "", benchnames)),
                   textOutput("valid"),
                   textOutput("omitted"),
                   width = "100%" 
@@ -83,23 +85,16 @@ ui <- dashboardPage(
 
 server<-function(input,output){
   #This is a table for
-  withProgress(message = "Loading stock information", value = 0, {
+  withProgress(message = "Loading stock information. This may take a few seconds.", value = 0, {
     stocks <- OSEBX_tickers2
     index<-Bench
     
-    rf.rate ="TB3MS"%>%
-      tq_get( 
-        get = "economic.data")%>%
-      tq_transmute(
-        select = price,
-        mutate_fun = periodReturn,
-        period = "daily",
-        col_rename = "returns")%>%
-      tbl_xts(
-        cols_to_xts =returns)%>%
-      Return.annualized()
+    rf.rate = "TB1YR" %>%  
+      tq_get(
+        get = "economic.data") %>%
+      arrange(desc(date))
     
-    rf.rate=as.numeric(rf.rate)
+    rf.rate = as.numeric(rf.rate[1,3]/100)
     
     Market_return<-index%>%
       tq_get(
@@ -137,7 +132,7 @@ server<-function(input,output){
     
   })
     
-  withProgress(message = "Loading table information", value = 0, {
+  withProgress(message = "Loading table information. This may take a few seconds.", value = 0, {
     stocks.df <- data.frame(ticker = names(asset.prices), beta = rep(NA), alpha = rep(NA), 
                             expected.return = rep(NA), return= rep(NA), r2 = rep(NA),
                             Stdev = rep(NA), Sharp = rep(NA),vVar = rep(NA))
@@ -169,7 +164,7 @@ server<-function(input,output){
                
                return = Return.annualized(xts_return)
                Stdev =StdDev.annualized(xts_return)
-               Sharp =SharpeRatio.annualized(xts_return, Rf = rf.rate/279.8)
+               Sharp =SharpeRatio.annualized(xts_return, Rf = rf.rate)
                vVar = CVaR(x$daily.returns,p=.95, method="historical")
                round(c(beta,alpha,r2,expected.return,return,vVar,Stdev,Sharp), 8)
                
@@ -317,7 +312,7 @@ server<-function(input,output){
       ggplot(aes(x = date, y = close, group = symbol))+ #group by symbol, meaning stock and benchmark 
       geom_line(aes(color=symbol )) + #diffrent colours to the different lines 
       scale_color_manual(values=c('blue','grey0')) + #Set specific colours for the different lines 
-      labs(title = "Comparison to benchmark",
+      labs(title = "Comparison",
            x = "", y = "") +
       theme_classic() +
       theme(legend.title=element_blank()) +
@@ -327,19 +322,19 @@ server<-function(input,output){
     dataInput<-dataInput()[[4]]
     dataInput%>%
       ggplot(aes(y = Annualized_Return, x = Annualized_StdDev)) +
-      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = 0.045, ymax= Inf, fill = 'green', alpha = 0.01) + 
-      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = -Inf, ymax= 0.045, fill = 'red', alpha = 0.01) +
-      geom_hline(aes(yintercept = 0.045)) + 
+      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = rf.rate, ymax= Inf, fill = 'green', alpha = 0.01) + 
+      geom_rect(aes(xmin = -Inf, xmax= Inf), ymin = -Inf, ymax= rf.rate, fill = 'red', alpha = 0.01) +
+      #geom_hline(aes(yintercept = rf.rate)) + 
       geom_label(label = dataInput$Ticker, size = 2) + 
       annotate(geom ='text',
-               x=0.3, 
-               y=0.05, 
-               label ='Risk-Free Rate Return (4.5%)', 
+               x=0.85, 
+               y=rf.rate, 
+               label = paste('One-Year T-bill =',rf.rate), 
                size = 4.5) + 
       theme_bw() + 
       xlab('Standard deviation') + 
       ylab('Anualized return') + 
-      ggtitle('Overall Stock Performance vs Risk-Free Rate Asset') +
+      ggtitle('Stock Performance vs Risk-Free Instrument (Annualized)') +
       theme(axis.text = element_text(size = 14), 
             plot.title = element_text(size =20, hjust = 0.5),
             axis.title = element_text(size = 16))

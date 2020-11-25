@@ -39,7 +39,7 @@ TB1YR <-
   tq_get("TB1YR",get = "economic.data") %>%
   arrange(desc(date))
 
-rf <- as.numeric(TB1YR[1,3])/100
+rf <- as.numeric(TB1YR[1,3])
 
 # PROBLEM: rf blir automatisk annualisert??
 
@@ -53,14 +53,14 @@ stocks<- benchnames %>%
     cols_to_xts =adjusted,
     spread_by = symbol)%>%
   Return.calculate()%>%
-  table.AnnualizedReturns(Rf = rf/365, scale = 252)%>%
+  table.AnnualizedReturns(Rf = rf*0.01/365, scale = 252)%>%
   rownames_to_column()%>%
   rename('Measure'='rowname')%>% 
   gather(key = 'Stock', value = 'Values', -Measure) %>% 
   spread(key = Measure, value = Values) %>%
   #colnames() <- c("Return", "Sharpe", "Std Dev")
   rename('Return' = 'Annualized Return', 
-         'Sharpe' = paste("Annualized Sharpe (Rf=",round(rf/365*252*100, digits = 2),"%)", sep=""),
+         'Sharpe' = paste("Annualized Sharpe (Rf=",round(rf/365*252, digits = 2),"%)", sep=""),
          'StdDev' = 'Annualized Std Dev' )
 
 
