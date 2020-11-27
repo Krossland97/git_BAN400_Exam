@@ -12,8 +12,8 @@ library(timetk)
 library(sweep)
 library(forecast)
 
-# Collect tickers
-tabledata.url <- "https://no.wikipedia.org/wiki/OSEBX-indeksen"
+
+tabledata.url <- "https://no.wikipedia.org/wiki/OSEBX-indeksen" #url for where the ticker data is colleted 
 
 #Create HTML tables of the tables from the tables in the url. Save as dataframe 
 OSEBX_indeksen <- htmltab(doc = tabledata.url, #select url 
@@ -25,14 +25,14 @@ OSEBX_indeksen_symbol <- paste0(OSEBX_indeksen[["Ticker"]], ".OL")
 
 #Remove OSE: from all charachers vector
 OSEBX_tickers <-  str_remove_all(OSEBX_indeksen_symbol, "OSE: ") 
-OSEBX_tickers2<-c(OSEBX_tickers)
+OSEBX_tickers2<-c(OSEBX_tickers,"^OSEAX")
 
 #Add names to the charachers in the vector, 
 names(OSEBX_tickers) =  paste0(OSEBX_indeksen[["Navn"]]) 
 
 #Repeat the process for the list of benchnames
 Bench<-"^OSEAX" #^OSEAX is the name of the ALl-share Index at Yahoo 
-names(Bench) = paste0("Oslo Børs All-share Index") #Asign name to the characher ^OSEAX
+names(Bench) = paste0("Oslo Børs All-Share Index") #Asign name to the characher ^OSEAX
 benchnames <-c(Bench,OSEBX_tickers) #New vector of OSEBX tickers plus ^OSEAX
 
 #------------------

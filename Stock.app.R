@@ -1,7 +1,6 @@
 library(shiny)
 library(shinydashboard)
 library(DT)
-library(htmltab)
 library(tidyverse)
 library(tidyquant)
 library(tbl2xts)
@@ -12,26 +11,26 @@ library(timetk)
 library(sweep)
 library(forecast)
 
-tabledata.url <- "https://no.wikipedia.org/wiki/OSEBX-indeksen" #url for where the ticker data is colleted 
+library(xml2)
+library(rvest)
 
-#Create HTML tables of the tables from the tables in the url. Save as dataframe 
-OSEBX_indeksen <- htmltab(doc = tabledata.url, #select url 
-                          which = 1, #select the table containing the tickers
-                          rm_nodata_cols = F) #Do not remove any columns regardsless of content
+url <- "http://www.nasdaqomxnordic.com/shares/listed-companies/norwegian-listed-shares" #url for where the ticker data is colleted 
+
+raw <- read_html(url)
+
+OSEBX_indeksen <- html_table(raw)[[1]] %>%
+  mutate(Symbol = substr(Symbol, 1, nchar(Symbol)-1)) #%>%
+#mutate(Symbol = paste0(Symbol, ".OL", sep = ""))
 
 #Create vector with all the tickers. Adding ".OL". Without .OL code will not work with Yahoo  
-OSEBX_indeksen_symbol <- paste0(OSEBX_indeksen[["Ticker"]], ".OL") 
-
-#Remove OSE: from all charachers vector
-OSEBX_tickers <-  str_remove_all(OSEBX_indeksen_symbol, "OSE: ") 
-OSEBX_tickers2<-c(OSEBX_tickers,"^OSEAX")
+OSEBX_tickers <- paste0(OSEBX_indeksen[["Symbol"]], ".OL") 
 
 #Add names to the charachers in the vector, 
-names(OSEBX_tickers) =  paste0(OSEBX_indeksen[["Navn"]]) 
+names(OSEBX_tickers) =  paste0(OSEBX_indeksen[["Name"]]) 
 
 #Repeat the process for the list of benchnames
 Bench<-"^OSEAX" #^OSEAX is the name of the ALl-share Index at Yahoo 
-names(Bench) = paste0("Oslo Børs All-share Index") #Asign name to the characher ^OSEAX
+names(Bench) = paste0("Oslo Børs All-Share Index") #Asign name to the characher ^OSEAX
 benchnames <-c(Bench,OSEBX_tickers) #New vector of OSEBX tickers plus ^OSEAX
 
 # Risk-free rate
