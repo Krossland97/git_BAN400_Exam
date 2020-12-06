@@ -1,0 +1,34 @@
+install.packages("htmltab")
+install.packages("tidyr")
+install.packages("stringr")
+library(htmltab)
+library(tidyr)
+library(stringr)
+
+## bare litt notes..
+# http://www.nasdaqomxnordic.com/shares/listed-companies/norwegian-listed-shares
+## //div[contains(text(),'Name')]
+## //table[@id='listedCompanies']
+## /html[1]/body[1]/section[1]/div[1]/div[1]/div[1]/section[1]/article[2]/div[1]/div[1]/table[1]
+
+
+
+url <- "http://www.nasdaqomxnordic.com/shares/listed-companies/norwegian-listed-shares" #Laster inn url
+stockNames <- htmltab(doc = url, which = "//table[@id='listedCompanies']" ) #relative Xpath for å scrappe selve tabellen. 
+
+
+### test av en annen side (denne funker)
+testurl <- "http://christianrubba.com/cran/htmltab/vignette/Demography%20of%20the%20United%20Kingdom%20-%20Wikipedia.html"
+ukLang <- htmltab(doc = testurl, which = "//th[contains(text(),'Ability')]")
+head(ukLang)
+
+### Begge disse 2 funker som XPath
+#    //th[text() = 'Ability']/ancestor::table
+#   //th[contains(text(),'Ability')]
+
+
+
+### wikipedia test (denne funker også)
+
+wikiurl <- "https://no.wikipedia.org/wiki/OSEBX-indeksen"
+aksjeNavn <- htmltab(doc = wikiurl, which = 1)
