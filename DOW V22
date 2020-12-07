@@ -217,7 +217,7 @@ server<-function(input,output){
     
     # Renaming some terms in the dataframe and adding capital letter.
     stocks.df<-stocks.df%>%
-      rename('Annualized_Return' = 'return', 
+        rename('Annualized_Return' = 'return', 
              'Annualized_Sharpe' = 'Sharp',
              'Annualized_StdDev' = 'Stdev',
              'Beta' = 'beta',
@@ -225,6 +225,7 @@ server<-function(input,output){
              'R2' = 'r2',
              'Expected_return' = 'expected.return',
              'Historical_VaR'='vVar',
+             'Ticker'='ticker',
              'Company' = 'company')
     
     
