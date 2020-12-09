@@ -1,11 +1,6 @@
 #BAN400
 Termpaper BAN400R
 
-Dreier seg om en overgangsfase.
-
-Bruk nasdaq-varianten i readme
- lag en egen seksjon med: Problems with scrappinng
-
 
 Litt om problemet vårt:
 
@@ -15,7 +10,9 @@ Utførelsen:
 
 
 Hva er det hvilke problemer møtte vi på:
-Problemet er den overgangsfasen
+
+Problems with scrapping:
+Problemet er den overgangsfasen:
 I denne fasen vil det være veldig stor usikkerhet på hvilke data som er tilgjengelig fra hvilke tabeller.
 Vi vil da ikke spekulere i dette, og heller levere noe trygt som vi vet virker. 
 
