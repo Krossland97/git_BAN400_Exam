@@ -4,7 +4,7 @@ Termpaper BAN400R
 Introduction:
 
 In this project we wanted to create an interactive application for simple stock analysis using the Shiny Package.
-Originally, our aim was to let the user select one of the 69 listed stocks on OSEBX and compare it with either a benchmark or another stock, 
+Originally, our aim was to let the user select one of the listed stocks on OSEBX and compare it with either a benchmark or another stock, 
 where the user determines the time interval himself. The application will then provide useful information such as development in stock price, 
 moving averages, VaR and daily returns. 
 
