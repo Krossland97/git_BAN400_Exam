@@ -71,5 +71,5 @@ OSEBX_indeksen <- as_tibble(html_table(raw)[[1]]) %>%
 OSEBX_tickers <- paste0(OSEBX_indeksen[["Symbol"]], ".OL") 
 OSEBX_tickers2 <- c(OSEBX_tickers)
 
-#Add names to the charachers in the vector, 
+#Add names to the charachers in the vector
 names(OSEBX_tickers) =  paste0(OSEBX_indeksen[["Name"]]) 
