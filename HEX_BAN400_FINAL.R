@@ -7,6 +7,7 @@
 #https://github.com/business-science/tidyquant
 #https://shiny.rstudio.com/tutorial/written-tutorial/lesson6/
 
+#Url to app https://hom1998.shinyapps.io/BAN400-final/
 # ---------------------------------------------------Packages---------------------------------------------------------------------------
 
 library(shiny)
@@ -438,3 +439,5 @@ server<-function(input,output){
 
 
 shinyApp(ui,server) # This line of code will launch the app
+
+#Url to app: https://hom1998.shinyapps.io/BAN400-final/
